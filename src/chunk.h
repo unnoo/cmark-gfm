@@ -8,8 +8,12 @@
 #include "buffer.h"
 #include "cmark_ctype.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define CMARK_CHUNK_EMPTY                                                      \
-  { NULL, 0, 0 }
+{ NULL, 0, 0 }
 
 typedef struct cmark_chunk {
   unsigned char *data;
@@ -20,7 +24,7 @@ typedef struct cmark_chunk {
 static CMARK_INLINE void cmark_chunk_free(cmark_mem *mem, cmark_chunk *c) {
   if (c->alloc)
     mem->free(c->data);
-
+  
   c->data = NULL;
   c->alloc = 0;
   c->len = 0;
@@ -28,7 +32,7 @@ static CMARK_INLINE void cmark_chunk_free(cmark_mem *mem, cmark_chunk *c) {
 
 static CMARK_INLINE void cmark_chunk_ltrim(cmark_chunk *c) {
   assert(!c->alloc);
-
+  
   while (c->len && cmark_isspace(c->data[0])) {
     c->data++;
     c->len--;
@@ -37,11 +41,11 @@ static CMARK_INLINE void cmark_chunk_ltrim(cmark_chunk *c) {
 
 static CMARK_INLINE void cmark_chunk_rtrim(cmark_chunk *c) {
   assert(!c->alloc);
-
+  
   while (c->len > 0) {
     if (!cmark_isspace(c->data[c->len - 1]))
       break;
-
+    
     c->len--;
   }
 }
@@ -54,14 +58,14 @@ static CMARK_INLINE void cmark_chunk_trim(cmark_chunk *c) {
 static CMARK_INLINE bufsize_t cmark_chunk_strchr(cmark_chunk *ch, int c,
                                                  bufsize_t offset) {
   const unsigned char *p =
-      (unsigned char *)memchr(ch->data + offset, c, ch->len - offset);
+  (unsigned char *)memchr(ch->data + offset, c, ch->len - offset);
   return p ? (bufsize_t)(p - ch->data) : ch->len;
 }
 
 static CMARK_INLINE const char *cmark_chunk_to_cstr(cmark_mem *mem,
                                                     cmark_chunk *c) {
   unsigned char *str;
-
+  
   if (c->alloc) {
     return (char *)c->data;
   }
@@ -72,7 +76,7 @@ static CMARK_INLINE const char *cmark_chunk_to_cstr(cmark_mem *mem,
   str[c->len] = 0;
   c->data = str;
   c->alloc = 1;
-
+  
   return (char *)str;
 }
 
@@ -108,11 +112,11 @@ static CMARK_INLINE cmark_chunk cmark_chunk_dup(const cmark_chunk *ch,
 
 static CMARK_INLINE cmark_chunk cmark_chunk_buf_detach(cmark_strbuf *buf) {
   cmark_chunk c;
-
+  
   c.len = buf->size;
   c.data = cmark_strbuf_detach(buf);
   c.alloc = 1;
-
+  
   return c;
 }
 
@@ -131,5 +135,9 @@ static CMARK_INLINE cmark_chunk cmark_chunk_rtrim_new(cmark_mem *mem, cmark_chun
   cmark_chunk_to_cstr(mem, &r);
   return r;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
