@@ -1,11 +1,11 @@
 #ifndef CMARK_CMARK_CTYPE_H
 #define CMARK_CMARK_CTYPE_H
 
+#include "cmark-gfm_export.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include "cmark-gfm_export.h"
 
 /** Locale-independent versions of functions from ctype.h.
  * We want cmark to behave the same no matter what the system locale.
