@@ -13,6 +13,15 @@ extern "C" {
 CMARK_GFM_EXPORT
 void cmark_gfm_core_extensions_ensure_registered(void);
 
+extern cmark_node_type CMARK_NODE_TABLE, CMARK_NODE_TABLE_ROW,
+    CMARK_NODE_TABLE_CELL;
+
+#ifndef CMARK_NO_SHORT_NAMES
+#define NODE_TABLE CMARK_NODE_TABLE
+#define NODE_TABLE_ROW CMARK_NODE_TABLE_ROW
+#define NODE_TABLE_CELL CMARK_NODE_TABLE_CELL
+#endif
+
 CMARK_GFM_EXPORT
 uint16_t cmark_gfm_extensions_get_table_columns(cmark_node *node);
 
