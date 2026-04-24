@@ -5,14 +5,15 @@
  * see http://spec.commonmark.org/0.24/#phase-1-block-structure
  */
 
-#include <stdlib.h>
 #include <assert.h>
-#include <stdio.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "cmark_ctype.h"
 #include "syntax_extension.h"
-#include "config.h"
+#include "cmark-gfm_config.h"
 #include "parser.h"
 #include "cmark-gfm.h"
 #include "node.h"
@@ -49,7 +50,7 @@ static bool S_last_line_checked(const cmark_node *node) {
   return (node->flags & CMARK_NODE__LAST_LINE_CHECKED) != 0;
 }
 
-static CMARK_INLINE cmark_node_type S_type(const cmark_node *node) {
+static inline cmark_node_type S_type(const cmark_node *node) {
   return (cmark_node_type)node->type;
 }
 
@@ -64,11 +65,11 @@ static void S_set_last_line_checked(cmark_node *node) {
   node->flags |= CMARK_NODE__LAST_LINE_CHECKED;
 }
 
-static CMARK_INLINE bool S_is_line_end_char(char c) {
+static inline bool S_is_line_end_char(char c) {
   return (c == '\n' || c == '\r');
 }
 
-static CMARK_INLINE bool S_is_space_or_tab(char c) {
+static inline bool S_is_space_or_tab(char c) {
   return (c == ' ' || c == '\t');
 }
 
@@ -76,7 +77,7 @@ static void S_parser_feed(cmark_parser *parser, const unsigned char *buffer,
                           size_t len, bool eof);
 
 static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
-                           bufsize_t bytes);
+                           bufsize_t bytes, bool ensureEndsInNewline);
 
 static cmark_node *make_block(cmark_mem *mem, cmark_node_type tag,
                               int start_line, int start_column) {
@@ -103,6 +104,16 @@ int cmark_parser_attach_syntax_extension(cmark_parser *parser,
                                          cmark_syntax_extension *extension) {
   parser->syntax_extensions = cmark_llist_append(parser->mem, parser->syntax_extensions, extension);
   if (extension->match_inline || extension->insert_inline_from_delim) {
+    if (!parser->inline_syntax_extensions) {
+      // if we're loading an inline extension into this parser for the first time,
+      // allocate new buffers for the inline parser character arrays
+      parser->skip_chars = (int8_t *)parser->mem->calloc(sizeof(int8_t), 256);
+      cmark_set_default_skip_chars(&parser->skip_chars, true);
+
+      parser->special_chars = (int8_t *)parser->mem->calloc(sizeof(int8_t), 256);
+      cmark_set_default_special_chars(&parser->special_chars, true);
+    }
+
     parser->inline_syntax_extensions = cmark_llist_append(
       parser->mem, parser->inline_syntax_extensions, extension);
   }
@@ -123,6 +134,8 @@ static void cmark_parser_reset(cmark_parser *parser) {
   cmark_llist *saved_inline_exts = parser->inline_syntax_extensions;
   int saved_options = parser->options;
   cmark_mem *saved_mem = parser->mem;
+  int8_t *saved_specials = parser->special_chars;
+  int8_t *saved_skips = parser->skip_chars;
 
   cmark_parser_dispose(parser);
 
@@ -141,12 +154,17 @@ static void cmark_parser_reset(cmark_parser *parser) {
   parser->syntax_extensions = saved_exts;
   parser->inline_syntax_extensions = saved_inline_exts;
   parser->options = saved_options;
+
+  parser->special_chars = saved_specials;
+  parser->skip_chars = saved_skips;
 }
 
 cmark_parser *cmark_parser_new_with_mem(int options, cmark_mem *mem) {
   cmark_parser *parser = (cmark_parser *)mem->calloc(1, sizeof(cmark_parser));
   parser->mem = mem;
   parser->options = options;
+  cmark_set_default_skip_chars(&parser->skip_chars, false);
+  cmark_set_default_special_chars(&parser->special_chars, false);
   cmark_parser_reset(parser);
   return parser;
 }
@@ -158,6 +176,13 @@ cmark_parser *cmark_parser_new(int options) {
 
 void cmark_parser_free(cmark_parser *parser) {
   cmark_mem *mem = parser->mem;
+
+  // If any inline syntax extensions were added, free the memory allocated for the special-chars arrays
+  if (parser->inline_syntax_extensions) {
+    mem->free(parser->special_chars);
+    mem->free(parser->skip_chars);
+  }
+
   cmark_parser_dispose(parser);
   cmark_strbuf_free(&parser->curline);
   cmark_strbuf_free(&parser->linebuf);
@@ -189,13 +214,13 @@ static bool is_blank(cmark_strbuf *s, bufsize_t offset) {
   return true;
 }
 
-static CMARK_INLINE bool accepts_lines(cmark_node_type block_type) {
+static inline bool accepts_lines(cmark_node_type block_type) {
   return (block_type == CMARK_NODE_PARAGRAPH ||
           block_type == CMARK_NODE_HEADING ||
           block_type == CMARK_NODE_CODE_BLOCK);
 }
 
-static CMARK_INLINE bool contains_inlines(cmark_node *node) {
+static inline bool contains_inlines(cmark_node *node) {
   if (node->extension && node->extension->contains_inlines_func) {
     return node->extension->contains_inlines_func(node->extension, node) != 0;
   }
@@ -269,9 +294,10 @@ static bool resolve_reference_link_definitions(
   bufsize_t pos;
   cmark_strbuf *node_content = &b->content;
   cmark_chunk chunk = {node_content->ptr, node_content->size, 0};
-  while (chunk.len && chunk.data[0] == '[' &&
-         (pos = cmark_parse_reference_inline(parser->mem, &chunk,
-					     parser->refmap))) {
+  while ((chunk.len && chunk.data[0] == '[' &&
+            (pos = cmark_parse_reference_inline(parser->mem, &chunk, parser->refmap))) ||
+         (chunk.len && chunk.data[0] == '^' && chunk.data[1] == '[' &&
+            (pos = cmark_parse_reference_attributes_inline(parser->mem, &chunk, parser->refmap)))) {
 
     chunk.data += pos;
     chunk.len -= pos;
@@ -298,7 +324,8 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
     b->end_column = parser->last_line_length;
   } else if (S_type(b) == CMARK_NODE_DOCUMENT ||
              (S_type(b) == CMARK_NODE_CODE_BLOCK && b->as.code.fenced) ||
-             (S_type(b) == CMARK_NODE_HEADING && b->as.heading.setext)) {
+             (S_type(b) == CMARK_NODE_HEADING && b->as.heading.setext) ||
+             (parser->line_number - 1 < b->end_line)) {
     b->end_line = parser->line_number;
     b->end_column = parser->curline.size;
     if (b->end_column && parser->curline.ptr[b->end_column - 1] == '\n')
@@ -316,7 +343,7 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   case CMARK_NODE_PARAGRAPH:
   {
     has_content = resolve_reference_link_definitions(parser, b);
-    if (!has_content) {
+    if (!has_content && (parser->options & CMARK_OPT_PRESERVE_WHITESPACE) == 0) {
       // remove blank node (former reference def)
       cmark_node_free(b);
     }
@@ -425,9 +452,9 @@ void cmark_manage_extensions_special_characters(cmark_parser *parser, int add) {
     for (tmp_char = ext->special_inline_chars; tmp_char; tmp_char=tmp_char->next) {
       unsigned char c = (unsigned char)(size_t)tmp_char->data;
       if (add)
-        cmark_inlines_add_special_character(c, ext->emphasis);
+        cmark_inlines_add_special_character(parser, c, ext->emphasis);
       else
-        cmark_inlines_remove_special_character(c, ext->emphasis);
+        cmark_inlines_remove_special_character(parser, c, ext->emphasis);
     }
   }
 }
@@ -714,6 +741,7 @@ static void S_parser_feed(cmark_parser *parser, const unsigned char *buffer,
                           size_t len, bool eof) {
   const unsigned char *end = buffer + len;
   static const uint8_t repl[] = {239, 191, 189};
+  bool preserveWhitespace = parser->options & CMARK_OPT_PRESERVE_WHITESPACE;
 
   if (len > UINT_MAX - parser->total_size)
     parser->total_size = UINT_MAX;
@@ -746,10 +774,10 @@ static void S_parser_feed(cmark_parser *parser, const unsigned char *buffer,
     if (process) {
       if (parser->linebuf.size > 0) {
         cmark_strbuf_put(&parser->linebuf, buffer, chunk_len);
-        S_process_line(parser, parser->linebuf.ptr, parser->linebuf.size);
+        S_process_line(parser, parser->linebuf.ptr, parser->linebuf.size, !preserveWhitespace || !eof || eol < end);
         cmark_strbuf_clear(&parser->linebuf);
       } else {
-        S_process_line(parser, buffer, chunk_len);
+        S_process_line(parser, buffer, chunk_len, !preserveWhitespace || !eof || eol < end);
       }
     } else {
       if (eol < end && *eol == '\0') {
@@ -1055,6 +1083,8 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
   *all_matched = false;
   cmark_node *container = parser->root;
   cmark_node_type cont_type;
+    
+    
 
   while (S_last_child_is_open(container)) {
     container = container->last_child;
@@ -1373,7 +1403,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
   // then treat this as a "lazy continuation line" and add it to
   // the open paragraph.
   if (parser->current != last_matched_container &&
-      container == last_matched_container && !parser->blank &&
+      container == last_matched_container && (!parser->blank || (parser->options & CMARK_OPT_PRESERVE_WHITESPACE)) &&
       S_type(parser->current) == CMARK_NODE_PARAGRAPH) {
     add_line(parser->current, input, parser);
   } else { // not a lazy continuation
@@ -1424,22 +1454,28 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
         container = finalize(parser, container);
         assert(parser->current != NULL);
       }
-    } else if (parser->blank) {
+    } else if (parser->blank && (parser->options & CMARK_OPT_PRESERVE_WHITESPACE) == 0) {
       // ??? do nothing
     } else if (accepts_lines(S_type(container))) {
       if (S_type(container) == CMARK_NODE_HEADING &&
           container->as.heading.setext == false) {
         chop_trailing_hashtags(input);
       }
-      S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
+      if ((parser->options & CMARK_OPT_PRESERVE_WHITESPACE) == 0)
+        S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
                        false);
       add_line(container, input, parser);
     } else {
       // create paragraph container for line
-      container = add_child(parser, container, CMARK_NODE_PARAGRAPH,
-                            parser->first_nonspace + 1);
-      S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
-                       false);
+      if (parser->options & CMARK_OPT_PRESERVE_WHITESPACE) {
+        container = add_child(parser, container, CMARK_NODE_PARAGRAPH,
+                              parser->offset + 1);
+      } else {
+        container = add_child(parser, container, CMARK_NODE_PARAGRAPH,
+                              parser->first_nonspace + 1);
+        S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
+                           false);
+      }
       add_line(container, input, parser);
     }
 
@@ -1449,7 +1485,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
 
 /* See http://spec.commonmark.org/0.24/#phase-1-block-structure */
 static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
-                           bufsize_t bytes) {
+                           bufsize_t bytes, bool ensureEndsInNewline) {
   cmark_node *last_matched_container;
   bool all_matched = true;
   cmark_node *container;
@@ -1466,7 +1502,7 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   bytes = parser->curline.size;
 
   // ensure line ends with a newline:
-  if (bytes == 0 || !S_is_line_end_char(parser->curline.ptr[bytes - 1]))
+  if (ensureEndsInNewline && (bytes == 0 || !S_is_line_end_char(parser->curline.ptr[bytes - 1])))
     cmark_strbuf_putc(&parser->curline, '\n');
 
   parser->offset = 0;
@@ -1499,7 +1535,9 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
 
   current = parser->current;
 
-  open_new_blocks(parser, &container, &input, all_matched);
+  // Only open new blocks if we're not limited to inline
+  if ((parser->options & CMARK_OPT_INLINE_ONLY) == 0)
+    open_new_blocks(parser, &container, &input, all_matched);
 
   /* parser->current might have changed if feed_reentrant was called */
   if (current == parser->current)
@@ -1526,7 +1564,7 @@ cmark_node *cmark_parser_finish(cmark_parser *parser) {
     return NULL;
 
   if (parser->linebuf.size) {
-    S_process_line(parser, parser->linebuf.ptr, parser->linebuf.size);
+    S_process_line(parser, parser->linebuf.ptr, parser->linebuf.size, (parser->options & CMARK_OPT_PRESERVE_WHITESPACE) == 0);
     cmark_strbuf_clear(&parser->linebuf);
   }
 

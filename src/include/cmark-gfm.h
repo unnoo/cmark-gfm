@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
-#include "cmark-gfm_export.h"
+#include "export.h"
 #include "cmark-gfm_version.h"
 
 #ifdef __cplusplus
@@ -66,6 +66,7 @@ typedef enum {
   CMARK_NODE_LINK          = CMARK_NODE_TYPE_INLINE | 0x0009,
   CMARK_NODE_IMAGE         = CMARK_NODE_TYPE_INLINE | 0x000a,
   CMARK_NODE_FOOTNOTE_REFERENCE = CMARK_NODE_TYPE_INLINE | 0x000b,
+  CMARK_NODE_ATTRIBUTE          = CMARK_NODE_TYPE_INLINE | 0x000c,
 } cmark_node_type;
 
 extern cmark_node_type CMARK_NODE_LAST_BLOCK;
@@ -88,6 +89,13 @@ typedef enum {
   CMARK_PERIOD_DELIM,
   CMARK_PAREN_DELIM
 } cmark_delim_type;
+
+typedef enum {
+  CMARK_NO_LIST_MARKER,
+  CMARK_HYPHEN_LIST_MARKER,
+  CMARK_PLUS_LIST_MARKER,
+  CMARK_ASTERISK_LIST_MARKER
+} cmark_list_marker_type;
 
 typedef struct cmark_node cmark_node;
 typedef struct cmark_parser cmark_parser;
@@ -225,6 +233,10 @@ CMARK_GFM_EXPORT cmark_node *cmark_node_first_child(cmark_node *node);
  */
 CMARK_GFM_EXPORT cmark_node *cmark_node_last_child(cmark_node *node);
 
+/** Returns the N'th child of 'node', or NULL if 'node' does not have at least N children.
+ */
+CMARK_GFM_EXPORT cmark_node *cmark_node_nth_child(cmark_node *node, int n);
+
 /** Returns the footnote reference of 'node', or NULL if 'node' doesn't have a
  * footnote reference.
  */
@@ -358,6 +370,11 @@ const char *cmark_node_get_type_string(cmark_node *node);
  */
 CMARK_GFM_EXPORT const char *cmark_node_get_literal(cmark_node *node);
 
+/** Returns the number of backtick characters used to open the
+    node if it is an inline code span, otherwise returns 0.
+ */
+CMARK_GFM_EXPORT int cmark_node_get_backtick_count(cmark_node *node);
+
 /** Sets the string contents of 'node'.  Returns 1 on success,
  * 0 on failure.
  */
@@ -384,6 +401,16 @@ CMARK_GFM_EXPORT cmark_list_type cmark_node_get_list_type(cmark_node *node);
  */
 CMARK_GFM_EXPORT int cmark_node_set_list_type(cmark_node *node,
                                           cmark_list_type type);
+
+/** Returns the list marker of 'node', or `CMARK_NO_LIST_MARKER` if 'node'
+ * is not a list.
+ */
+CMARK_GFM_EXPORT cmark_list_marker_type cmark_node_get_list_marker(cmark_node *node);
+
+/** Sets the list marker of 'node', returning 1 on success and 0 on error.
+ */
+CMARK_GFM_EXPORT int cmark_node_set_list_marker(cmark_node *node,
+                                                cmark_list_marker_type listMarker);
 
 /** Returns the list delimiter type of 'node', or `CMARK_NO_DELIM` if 'node'
  * is not a list.
@@ -463,6 +490,17 @@ CMARK_GFM_EXPORT const char *cmark_node_get_title(cmark_node *node);
  * 0 on failure.
  */
 CMARK_GFM_EXPORT int cmark_node_set_title(cmark_node *node, const char *title);
+
+/** Returns the attributes of an attribute 'node', or an empty string
+    if no attributes are set.  Returns NULL if called on a node that is
+    not an attribute.
+ */
+CMARK_GFM_EXPORT const char *cmark_node_get_attributes(cmark_node *node);
+
+/** Sets the attributes of an attribute 'node'. Returns 1 on success,
+ * 0 on failure.
+ */
+CMARK_GFM_EXPORT int cmark_node_set_attributes(cmark_node *node, const char *attributes);
 
 /** Returns the literal "on enter" text for a custom 'node', or
     an empty string if no on_enter is set.  Returns NULL if called
@@ -768,6 +806,28 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_FULL_INFO_STRING (1 << 16)
 
+/** Parse only inline markdown directives. Block directives will not be
+ * parsed (their literal representations will remain in the output).
+ */
+#define CMARK_OPT_INLINE_ONLY (1 << 18)
+
+/** Parse the markdown input without removing preceding/trailing whitespace and
+ * without converting newline characters to breaks. Using this option also
+ * enables the CMARK_OPT_INLINE_ONLY option.
+ */
+#define CMARK_OPT_PRESERVE_WHITESPACE ((1 << 19) | CMARK_OPT_INLINE_ONLY)
+
+/** Parse row- and column-span in tables.
+ */
+#define CMARK_OPT_TABLE_SPANS (1 << 20)
+
+/** Parse table cells defining row span using a double-quote symbol (`"`, or "ditto mark")
+ * instead of the default caret symbol (`^`).
+ *
+ * Does nothing unless \c CMARK_OPT_TABLE_SPANS is also set.
+ */
+#define CMARK_OPT_TABLE_ROWSPAN_DITTO (1 << 21)
+
 /**
  * ## Version information
  */
@@ -795,7 +855,7 @@ const char *cmark_version_string(void);
  * John MacFarlane, Vicent Marti,  Kārlis Gaņģis, Nick Wellnhofer.
  */
 
-#ifndef CMARK_NO_SHORT_NAMES
+#if !defined(CMARK_NO_SHORT_NAMES)
 #define NODE_DOCUMENT CMARK_NODE_DOCUMENT
 #define NODE_BLOCK_QUOTE CMARK_NODE_BLOCK_QUOTE
 #define NODE_LIST CMARK_NODE_LIST
@@ -822,6 +882,9 @@ const char *cmark_version_string(void);
 #define ORDERED_LIST CMARK_ORDERED_LIST
 #define PERIOD_DELIM CMARK_PERIOD_DELIM
 #define PAREN_DELIM CMARK_PAREN_DELIM
+#define HYPHEN_LIST_MARKER CMARK_HYPHEN_LIST_MARKER
+#define PLUS_LIST_MARKER CMARK_PLUS_LIST_MARKER
+#define ASTERISK_LIST_MARKER CMARK_ASTERISK_LIST_MARKER
 #endif
 
 typedef int32_t bufsize_t;

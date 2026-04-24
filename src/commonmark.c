@@ -1,10 +1,11 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "config.h"
+#include "cmark-gfm_config.h"
 #include "cmark-gfm.h"
 #include "node.h"
 #include "buffer.h"
@@ -22,9 +23,8 @@
 
 // Functions to convert cmark_nodes to commonmark strings.
 
-static CMARK_INLINE void outc(cmark_renderer *renderer, cmark_node *node, 
-                              cmark_escaping escape,
-                              int32_t c, unsigned char nextc) {
+static inline void outc(cmark_renderer *renderer, cmark_node *node,
+                        cmark_escaping escape, int32_t c, unsigned char nextc) {
   bool needs_escaping = false;
   bool follows_digit =
       renderer->buffer->size > 0 &&
@@ -38,6 +38,7 @@ static CMARK_INLINE void outc(cmark_renderer *renderer, cmark_node *node,
 	 c == '*' || c == '_' || c == '[' || c == ']' || c == '#' || c == '<' ||
          c == '>' || c == '\\' || c == '`' || c == '~' || c == '!' ||
          (c == '&' && cmark_isalpha(nextc)) || (c == '!' && nextc == '[') ||
+         (c == '^' && nextc == '[') ||
          (renderer->begin_content && (c == '-' || c == '+' || c == '=') &&
           // begin_content doesn't get set to false til we've passed digits
           // at the beginning of line, so...
@@ -455,6 +456,16 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
         OUT(title, false, TITLE);
         LIT("\"");
       }
+      LIT(")");
+    }
+    break;
+
+  case CMARK_NODE_ATTRIBUTE:
+    if (entering) {
+      LIT("^[");
+    } else {
+      LIT("](");
+      OUT(cmark_node_get_attributes(node), false, LITERAL);
       LIT(")");
     }
     break;

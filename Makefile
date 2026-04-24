@@ -75,7 +75,7 @@ prof:
 afl:
 	@[ -n "$(AFL_PATH)" ] || { echo '$$AFL_PATH not set'; false; }
 	mkdir -p $(BUILDDIR)
-	cd $(BUILDDIR) && cmake .. -DCMARK_TESTS=0 -DCMAKE_C_COMPILER=$(AFL_PATH)/afl-clang
+	cd $(BUILDDIR) && cmake .. -DBUILD_TESTING=NO -DCMAKE_C_COMPILER=$(AFL_PATH)/afl-clang
 	$(MAKE)
 	$(AFL_PATH)/afl-fuzz \
 	    -i test/afl_test_cases \
@@ -101,7 +101,7 @@ mingw:
 	cmake .. -DCMAKE_TOOLCHAIN_FILE=../toolchain-mingw32.cmake -DCMAKE_INSTALL_PREFIX=$(MINGW_INSTALLDIR) ;\
 	$(MAKE) && $(MAKE) install
 
-man/man3/cmark-gfm.3: src/cmark-gfm.h | $(CMARK)
+man/man3/cmark-gfm.3: src/include/cmark-gfm.h | $(CMARK)
 	python man/make_man_page.py $< > $@ \
 
 archive:

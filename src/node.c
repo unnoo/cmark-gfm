@@ -1,9 +1,14 @@
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "config.h"
+#include "cmark-gfm_config.h"
+#include "mutex.h"
 #include "node.h"
 #include "syntax_extension.h"
+
+CMARK_DEFINE_LOCK(nextflag)
+CMARK_DEFINE_LOCK(safety)
 
 /**
  * Expensive safety checks are off by default, but can be enabled
@@ -12,7 +17,20 @@
 static bool enable_safety_checks = false;
 
 void cmark_enable_safety_checks(bool enable) {
+  CMARK_INITIALIZE_AND_LOCK(safety);
   enable_safety_checks = enable;
+  CMARK_UNLOCK(safety);
+}
+
+/**
+ * Check whether safety checks have been enabled in a function to guard access
+ * behind a lock.
+ */
+static bool S_safety_checks_enabled() {
+  CMARK_INITIALIZE_AND_LOCK(safety);
+  bool safety_enabled = enable_safety_checks;
+  CMARK_UNLOCK(safety);
+  return safety_enabled;
 }
 
 static void S_node_unlink(cmark_node *node);
@@ -20,6 +38,8 @@ static void S_node_unlink(cmark_node *node);
 #define NODE_MEM(node) cmark_node_mem(node)
 
 void cmark_register_node_flag(cmark_node_internal_flags *flags) {
+  CMARK_INITIALIZE_AND_LOCK(nextflag);
+
   static cmark_node_internal_flags nextflag = CMARK_NODE__REGISTER_FIRST;
 
   // flags should be a pointer to a global variable and this function
@@ -37,6 +57,8 @@ void cmark_register_node_flag(cmark_node_internal_flags *flags) {
 
   *flags = nextflag;
   nextflag <<= 1;
+
+  CMARK_UNLOCK(nextflag);
 }
 
 void cmark_init_standard_node_flags(void) {}
@@ -69,6 +91,7 @@ bool cmark_node_can_contain_type(cmark_node *node, cmark_node_type child_type) {
   case CMARK_NODE_STRONG:
   case CMARK_NODE_LINK:
   case CMARK_NODE_IMAGE:
+  case CMARK_NODE_ATTRIBUTE:
   case CMARK_NODE_CUSTOM_INLINE:
     return CMARK_NODE_TYPE_INLINE_P(child_type);
 
@@ -87,7 +110,7 @@ static bool S_can_contain(cmark_node *node, cmark_node *child) {
     return 0;
   }
 
-  if (enable_safety_checks) {
+  if (S_safety_checks_enabled()) {
     // Verify that child is not an ancestor of node or equal to node.
     cmark_node *cur = node;
     do {
@@ -163,6 +186,9 @@ static void free_node_as(cmark_node *node) {
     case CMARK_NODE_IMAGE:
     cmark_chunk_free(NODE_MEM(node), &node->as.link.url);
     cmark_chunk_free(NODE_MEM(node), &node->as.link.title);
+      break;
+    case CMARK_NODE_ATTRIBUTE:
+    cmark_chunk_free(NODE_MEM(node), &node->as.attribute.attributes);
       break;
     case CMARK_NODE_CUSTOM_BLOCK:
     case CMARK_NODE_CUSTOM_INLINE:
@@ -288,6 +314,8 @@ const char *cmark_node_get_type_string(cmark_node *node) {
     return "link";
   case CMARK_NODE_IMAGE:
     return "image";
+  case CMARK_NODE_ATTRIBUTE:
+    return "attribute";
   }
 
   return "<unknown>";
@@ -331,6 +359,19 @@ cmark_node *cmark_node_last_child(cmark_node *node) {
   } else {
     return node->last_child;
   }
+}
+
+cmark_node *cmark_node_nth_child(cmark_node *node, int n) {
+  if (node == NULL) {
+    return NULL;
+  }
+  int i = 0;
+  cmark_node *ret = node->first_child;
+  while (ret && i < n) {
+    ret = ret->next;
+    ++i;
+  }
+  return ret;
 }
 
 cmark_node *cmark_node_parent_footnote_def(cmark_node *node) {
@@ -388,6 +429,10 @@ const char *cmark_node_get_literal(cmark_node *node) {
   }
 
   return NULL;
+}
+
+int cmark_node_get_backtick_count(cmark_node *node) {
+  return node->backtick_count;
 }
 
 int cmark_node_set_literal(cmark_node *node, const char *content) {
@@ -483,6 +528,43 @@ int cmark_node_set_list_type(cmark_node *node, cmark_list_type type) {
     return 1;
   } else {
     return 0;
+  }
+}
+
+cmark_list_marker_type cmark_node_get_list_marker(cmark_node *node) {
+  if (cmark_node_get_list_type(node) != CMARK_BULLET_LIST) {
+    return CMARK_NO_LIST_MARKER;
+  }
+  
+  switch (node->as.list.bullet_char) {
+    case '-': return CMARK_HYPHEN_LIST_MARKER;
+    case '+': return CMARK_PLUS_LIST_MARKER;
+    case '*': return CMARK_ASTERISK_LIST_MARKER;
+    default: return CMARK_NO_LIST_MARKER;
+  }
+}
+
+int cmark_node_set_list_marker(cmark_node *node, cmark_list_marker_type listMarker) {
+  if (!(listMarker == CMARK_HYPHEN_LIST_MARKER || listMarker == CMARK_PLUS_LIST_MARKER || listMarker == CMARK_ASTERISK_LIST_MARKER)) {
+    return 0;
+  }
+  
+  if (cmark_node_get_list_type(node) != CMARK_BULLET_LIST) {
+    return 0;
+  }
+  
+  switch (listMarker) {
+    case CMARK_HYPHEN_LIST_MARKER:
+      node->as.list.bullet_char = '-';
+      return 1;
+    case CMARK_PLUS_LIST_MARKER:
+      node->as.list.bullet_char = '+';
+      return 1;
+    case CMARK_ASTERISK_LIST_MARKER:
+      node->as.list.bullet_char = '*';
+      return 1;
+    default:
+      return 0;
   }
 }
 
@@ -705,6 +787,37 @@ int cmark_node_set_title(cmark_node *node, const char *title) {
   case CMARK_NODE_LINK:
   case CMARK_NODE_IMAGE:
     cmark_chunk_set_cstr(NODE_MEM(node), &node->as.link.title, title);
+    return 1;
+  default:
+    break;
+  }
+
+  return 0;
+}
+
+const char *cmark_node_get_attributes(cmark_node *node) {
+  if (node == NULL) {
+    return NULL;
+  }
+
+  switch (node->type) {
+  case CMARK_NODE_ATTRIBUTE:
+    return cmark_chunk_to_cstr(NODE_MEM(node), &node->as.attribute.attributes);
+  default:
+    break;
+  }
+
+  return NULL;
+}
+
+int cmark_node_set_attributes(cmark_node *node, const char *attributes) {
+  if (node == NULL) {
+    return 0;
+  }
+
+  switch (node->type) {
+  case CMARK_NODE_ATTRIBUTE:
+    cmark_chunk_set_cstr(NODE_MEM(node), &node->as.attribute.attributes, attributes);
     return 1;
   default:
     break;

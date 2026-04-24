@@ -1,7 +1,10 @@
 #ifndef CMARK_PARSER_H
 #define CMARK_PARSER_H
 
+#include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+
 #include "references.h"
 #include "node.h"
 #include "buffer.h"
@@ -50,6 +53,9 @@ struct cmark_parser {
   cmark_llist *syntax_extensions;
   cmark_llist *inline_syntax_extensions;
   cmark_ispunct_func backslash_ispunct;
+  /* used when parsing inlines, can be populated by extensions if any are loaded */
+  int8_t *skip_chars;
+  int8_t *special_chars;
 };
 
 #ifdef __cplusplus

@@ -1,9 +1,10 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "config.h"
+#include "cmark-gfm_config.h"
 #include "cmark-gfm.h"
 #include "node.h"
 #include "buffer.h"
@@ -25,7 +26,7 @@ struct render_state {
   int indent;
 };
 
-static CMARK_INLINE void indent(struct render_state *state) {
+static inline void indent(struct render_state *state) {
   int i;
   for (i = 0; i < state->indent && i < MAX_INDENT; i++) {
     cmark_strbuf_putc(state->xml, ' ');
@@ -133,6 +134,9 @@ static int S_render_node(cmark_node *node, cmark_event_type ev_type,
       cmark_strbuf_puts(xml, " title=\"");
       escape_xml(xml, node->as.link.title.data, node->as.link.title.len);
       cmark_strbuf_putc(xml, '"');
+      break;
+    case CMARK_NODE_ATTRIBUTE:
+      // TODO
       break;
     default:
       break;

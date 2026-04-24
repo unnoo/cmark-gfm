@@ -1,11 +1,12 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define CMARK_NO_SHORT_NAMES
-#include "cmark-gfm.h"
+#include <cmark-gfm.h>
 #include "node.h"
-#include "../extensions/cmark-gfm-core-extensions.h"
+#include <cmark-gfm-core-extensions.h>
 
 #include "harness.h"
 #include "cplusplus.h"
@@ -106,6 +107,8 @@ static void accessors(test_batch_runner *runner) {
          "get_list_type bullet");
   INT_EQ(runner, cmark_node_get_list_tight(bullet_list), 1,
          "get_list_tight tight");
+  INT_EQ(runner, cmark_node_get_list_marker(bullet_list), CMARK_ASTERISK_LIST_MARKER,
+         "get_list_marker asterisk");
 
   cmark_node *ordered_list = cmark_node_next(bullet_list);
   INT_EQ(runner, cmark_node_get_list_type(ordered_list), CMARK_ORDERED_LIST,
@@ -145,6 +148,7 @@ static void accessors(test_batch_runner *runner) {
 
   OK(runner, cmark_node_set_heading_level(heading, 3), "set_heading_level");
 
+  OK(runner, cmark_node_set_list_marker(bullet_list, CMARK_PLUS_LIST_MARKER), "set_list_marker plus");
   OK(runner, cmark_node_set_list_type(bullet_list, CMARK_ORDERED_LIST),
      "set_list_type ordered");
   OK(runner, cmark_node_set_list_delim(bullet_list, CMARK_PAREN_DELIM),
@@ -210,6 +214,7 @@ static void accessors(test_batch_runner *runner) {
          "get_list_type error");
   INT_EQ(runner, cmark_node_get_list_start(code), 0, "get_list_start error");
   INT_EQ(runner, cmark_node_get_list_tight(fenced), 0, "get_list_tight error");
+  INT_EQ(runner, cmark_node_get_list_marker(heading), CMARK_NO_LIST_MARKER, "get_list_marker error");
   OK(runner, cmark_node_get_literal(ordered_list) == NULL, "get_literal error");
   OK(runner, cmark_node_get_fence_info(paragraph) == NULL,
      "get_fence_info error");
@@ -224,6 +229,7 @@ static void accessors(test_batch_runner *runner) {
      "set_list_type error");
   OK(runner, !cmark_node_set_list_start(code, 3), "set_list_start error");
   OK(runner, !cmark_node_set_list_tight(fenced, 0), "set_list_tight error");
+  OK(runner, !cmark_node_set_list_marker(heading, CMARK_PLUS_LIST_MARKER), "set_list_marker error");
   OK(runner, !cmark_node_set_literal(ordered_list, "content\n"),
      "set_literal error");
   OK(runner, !cmark_node_set_fence_info(paragraph, "lang"),
@@ -239,6 +245,8 @@ static void accessors(test_batch_runner *runner) {
      "set_list_type invalid");
   OK(runner, !cmark_node_set_list_start(bullet_list, -1),
      "set_list_start negative");
+  OK(runner, !cmark_node_set_list_marker(bullet_list, CMARK_NO_LIST_MARKER),
+     "set_list_marker invalid");
 
   cmark_node_free(doc);
 }
@@ -1004,13 +1012,19 @@ static void source_pos(test_batch_runner *runner) {
     ">    Sure.\n"
     ">\n"
     "> 2. Yes, okay.\n"
-    ">    ![ok](hi \"yes\")\n";
+    ">    ![ok](hi \"yes\")\n"
+    "<!-- HTML Comment -->\n"
+    "\n"
+    "what happens if we spread a link [across multiple\n"
+    "lines][anchor]\n"
+    "\n"
+    "[anchor]: http://example.com\n";
 
   cmark_node *doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT);
   char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
   STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                       "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
-                      "<document sourcepos=\"1:1-10:20\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
+                      "<document sourcepos=\"1:1-16:28\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
                       "  <heading sourcepos=\"1:1-1:13\" level=\"1\">\n"
                       "    <text sourcepos=\"1:3-1:5\" xml:space=\"preserve\">Hi </text>\n"
                       "    <emph sourcepos=\"1:6-1:12\">\n"
@@ -1052,6 +1066,16 @@ static void source_pos(test_batch_runner *runner) {
                       "      </item>\n"
                       "    </list>\n"
                       "  </block_quote>\n"
+                      "  <html_block sourcepos=\"11:1-11:21\" xml:space=\"preserve\">&lt;!-- HTML Comment --&gt;\n"
+                      "</html_block>\n"
+                      "  <paragraph sourcepos=\"13:1-14:14\">\n"
+                      "    <text sourcepos=\"13:1-13:33\" xml:space=\"preserve\">what happens if we spread a link </text>\n"
+                      "    <link sourcepos=\"13:34-14:14\" destination=\"http://example.com\" title=\"\">\n"
+                      "      <text sourcepos=\"13:35-13:49\" xml:space=\"preserve\">across multiple</text>\n"
+                      "      <softbreak />\n"
+                      "      <text sourcepos=\"14:1-14:5\" xml:space=\"preserve\">lines</text>\n"
+                      "    </link>\n"
+                      "  </paragraph>\n"
                       "</document>\n",
          "sourcepos are as expected");
   free(xml);
@@ -1062,19 +1086,26 @@ static void source_pos_inlines(test_batch_runner *runner) {
   {
     static const char markdown[] =
       "*first*\n"
-      "second\n";
+      "second\n"
+      "\n"
+      "   <http://example.com>";
 
     cmark_node *doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT);
     char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
     STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                         "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
-                        "<document sourcepos=\"1:1-2:6\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
+                        "<document sourcepos=\"1:1-4:23\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
                         "  <paragraph sourcepos=\"1:1-2:6\">\n"
                         "    <emph sourcepos=\"1:1-1:7\">\n"
                         "      <text sourcepos=\"1:2-1:6\" xml:space=\"preserve\">first</text>\n"
                         "    </emph>\n"
                         "    <softbreak />\n"
                         "    <text sourcepos=\"2:1-2:6\" xml:space=\"preserve\">second</text>\n"
+                        "  </paragraph>\n"
+                        "  <paragraph sourcepos=\"4:4-4:23\">\n"
+                        "    <link sourcepos=\"4:4-4:23\" destination=\"http://example.com\" title=\"\">\n"
+                        "      <text sourcepos=\"4:5-4:22\" xml:space=\"preserve\">http://example.com</text>\n"
+                        "    </link>\n"
                         "  </paragraph>\n"
                         "</document>\n",
                         "sourcepos are as expected");
@@ -1097,6 +1128,26 @@ static void source_pos_inlines(test_batch_runner *runner) {
                         "      <softbreak />\n"
                         "      <text sourcepos=\"2:1-2:6\" xml:space=\"preserve\">second</text>\n"
                         "    </emph>\n"
+                        "  </paragraph>\n"
+                        "</document>\n",
+                        "sourcepos are as expected");
+    free(xml);
+    cmark_node_free(doc);
+  }
+  {
+    static const char markdown[] =
+      "` It is one backtick\n"
+      "`` They are two backticks\n";
+
+    cmark_node *doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT);
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+    STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
+                        "<document sourcepos=\"1:1-2:25\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
+                        "  <paragraph sourcepos=\"1:1-2:25\">\n"
+                        "    <text sourcepos=\"1:1-1:20\" xml:space=\"preserve\">` It is one backtick</text>\n"
+                        "    <softbreak />\n"
+                        "    <text sourcepos=\"2:1-2:25\" xml:space=\"preserve\">`` They are two backticks</text>\n"
                         "  </paragraph>\n"
                         "</document>\n",
                         "sourcepos are as expected");
@@ -1127,6 +1178,405 @@ static void ref_source_pos(test_batch_runner *runner) {
          "sourcepos are as expected");
   free(xml);
   cmark_node_free(doc);
+}
+
+static void inline_only_opt(test_batch_runner *runner) {
+  static const char markdown[] =
+    "# My heading\n"
+    "> My block quote\n\n"
+    "- List item\n\n"
+    "[link](https://github.com)\n";
+  
+  cmark_node *doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_INLINE_ONLY);
+  char *html = cmark_render_html(doc, CMARK_OPT_DEFAULT, 0);
+  STR_EQ(runner, html, "<p># My heading\n"
+         "&gt; My block quote\n"
+         "\n"
+         "- List item\n"
+         "\n"
+         "<a href=\"https://github.com\">link</a>\n"
+         "</p>\n", "html is as expected");
+  free(html);
+  cmark_node_free(doc);
+}
+
+static void check_markdown_plaintext(test_batch_runner *runner, const char *markdown) {
+  cmark_node *doc = cmark_parse_document(markdown, strlen(markdown), CMARK_OPT_PRESERVE_WHITESPACE);
+  cmark_node *pg = cmark_node_first_child(doc);
+  INT_EQ(runner, cmark_node_get_type(pg), CMARK_NODE_PARAGRAPH, "markdown '%s' did not produce a paragraph node", markdown);
+  cmark_node *textNode = cmark_node_first_child(pg);
+  INT_EQ(runner, cmark_node_get_type(textNode), CMARK_NODE_TEXT, "markdown '%s' did not produce a text node inside the paragraph node", markdown);
+  const char *text = cmark_node_get_literal(textNode);
+  OK(runner, (text != NULL), "Text literal for '%s' was null", markdown);
+  if (text) {
+    STR_EQ(runner, text, markdown, "markdown '%s' resulted in '%s'", markdown, text);
+  } else {
+    SKIP(runner, 1);
+  }
+  cmark_node_free(doc);
+}
+
+static void preserve_whitespace_opt(test_batch_runner *runner) {
+  check_markdown_plaintext(runner, " ");
+  check_markdown_plaintext(runner, "    ");
+  check_markdown_plaintext(runner, "hello");
+  check_markdown_plaintext(runner, "hello ");
+  check_markdown_plaintext(runner, " hello");
+  check_markdown_plaintext(runner, "    hello");
+  check_markdown_plaintext(runner, "hello    ");
+  check_markdown_plaintext(runner, "hel\nlo");
+  check_markdown_plaintext(runner, "hel\n\nlo");
+  check_markdown_plaintext(runner, "hel\nworld\nlo");
+  check_markdown_plaintext(runner, " hel \n world \n lo ");
+  check_markdown_plaintext(runner, "  hello \n  \n world  ");
+  check_markdown_plaintext(runner, "\n");
+  check_markdown_plaintext(runner, "\n\n\n");
+  check_markdown_plaintext(runner, "\nHello");
+  check_markdown_plaintext(runner, "Hello\n");
+  check_markdown_plaintext(runner, "\nHello\n");
+}
+
+static void check_markdown_attributes_node(test_batch_runner *runner, const char *markdown, cmark_node_type expectedType, const char *expectedAttributes) {
+  cmark_node *doc = cmark_parse_document(markdown, strlen(markdown), CMARK_OPT_DEFAULT);
+  cmark_node *pg = cmark_node_first_child(doc);
+  INT_EQ(runner, cmark_node_get_type(pg), CMARK_NODE_PARAGRAPH, "markdown '%s' did not produce a paragraph node", markdown);
+  cmark_node *attributeNode = cmark_node_first_child(pg);
+  cmark_node_type nodeType = cmark_node_get_type(attributeNode);
+  INT_EQ(runner, nodeType, expectedType, "markdown '%s' did not produce the correct node type: got %d, expecting %d", markdown, nodeType, expectedType);
+  const char *attributeContent = cmark_node_get_attributes(attributeNode);
+  if (attributeContent == NULL) {
+    OK(runner, expectedAttributes == NULL, "markdown '%s' produced an unexpected NULL attribute", markdown);
+  } else if (expectedAttributes == NULL) {
+    OK(runner, attributeContent == NULL, "markdown '%s' produced an unexpected NULL attribute", markdown);
+  } else {
+    STR_EQ(runner, attributeContent, expectedAttributes, "markdown '%s' did not produce the correct attributes: got %s, expecting: %s", markdown, attributeContent, expectedAttributes);
+  }
+
+  cmark_node_free(doc);
+}
+
+static void verify_custom_attributes_node(test_batch_runner *runner) {
+  // Should produce a TEXT node since there's no `()` to signify attributes
+  check_markdown_attributes_node(runner, "^[]", CMARK_NODE_TEXT, NULL);
+  check_markdown_attributes_node(runner, "^[](", CMARK_NODE_TEXT, NULL);
+  check_markdown_attributes_node(runner, "^[])", CMARK_NODE_TEXT, NULL);
+  check_markdown_attributes_node(runner, "^[])(", CMARK_NODE_TEXT, NULL);
+  // Should produce an ATTRIBUTE node with no attributes
+  check_markdown_attributes_node(runner, "^[]()", CMARK_NODE_ATTRIBUTE, "");
+  // Should produce an ATTRIBUTE node with attributes
+  check_markdown_attributes_node(runner, "^[](rainbow: 'extreme')", CMARK_NODE_ATTRIBUTE, "rainbow: 'extreme'");
+}
+
+static cmark_node* parse_custom_attributues_footnote(test_batch_runner *runner, const char *markdown, cmark_node **retdoc) {
+  cmark_node *doc = cmark_parse_document(markdown, strlen(markdown), CMARK_OPT_DEFAULT);
+  cmark_node *pg = cmark_node_first_child(doc);
+  INT_EQ(runner, cmark_node_get_type(pg), CMARK_NODE_PARAGRAPH, "markdown '%s' did not produce a paragraph node", markdown);
+  *retdoc = doc;
+  return cmark_node_first_child(pg);
+}
+
+static void verify_custom_attributes_footnote_basic(test_batch_runner *runner) {
+  static const char markdown[] =
+    "^[caffe][1]\n"
+    "\n"
+    "^[1]: rainbow: 'extreme', colors: { r: 255, g: 0, b: 0 }, corgicopter: true";
+  cmark_node *doc;
+  cmark_node *attributeNode = parse_custom_attributues_footnote(runner, markdown, &doc);
+  INT_EQ(runner, cmark_node_get_type(attributeNode), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(attributeNode),
+         "rainbow: 'extreme', colors: { r: 255, g: 0, b: 0 }, corgicopter: true",
+         "markdown '%s' did not produce the right attribute in footnote", markdown);
+
+  cmark_node_free(doc);
+}
+
+static void verify_custom_attributes_footnote_multiple_footnotes(test_batch_runner *runner) {
+  static const char markdown[] =
+    "^[food][1] and ^[drinks][2]\n"
+    "\n"
+    "^[1]: rainbow: 'fun'\n"
+    "^[2]: magic: 42";
+  cmark_node *doc;
+  cmark_node *attributeNode1 = parse_custom_attributues_footnote(runner, markdown, &doc);
+  INT_EQ(runner, cmark_node_get_type(attributeNode1), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(attributeNode1), "rainbow: 'fun'", "markdown '%s' did not produce the right attribute in footnote", markdown);
+  cmark_node *textNode = cmark_node_next(attributeNode1); // "and"
+  cmark_node *attributeNode2 = cmark_node_next(textNode);
+  INT_EQ(runner, cmark_node_get_type(attributeNode2), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(attributeNode2), "magic: 42", "markdown '%s' did not produce the right attribute in footnote", markdown);
+
+  cmark_node_free(doc);
+}
+
+static void verify_custom_attributes_footnote_reuse(test_batch_runner *runner) {
+  static const char markdown[] =
+    "^[pizza][1], ^[sandwich][2], ^[ice cream][2], and ^[salad][1]\n"
+    "\n"
+    "^[1]: has_tomato: true\n"
+    "^[2]: price: 12";
+  cmark_node *doc;
+  cmark_node *pizzaNode = parse_custom_attributues_footnote(runner, markdown, &doc);
+  INT_EQ(runner, cmark_node_get_type(pizzaNode), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(pizzaNode), "has_tomato: true", "markdown '%s' did not produce the right attribute in footnote", markdown);
+  cmark_node *sandwichNode = cmark_node_next(cmark_node_next(pizzaNode));
+  INT_EQ(runner, cmark_node_get_type(sandwichNode), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(sandwichNode), "price: 12", "markdown '%s' did not produce the right attribute in footnote", markdown);
+  cmark_node *icecreamNode = cmark_node_next(cmark_node_next(sandwichNode));
+  INT_EQ(runner, cmark_node_get_type(icecreamNode), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(icecreamNode), "price: 12", "markdown '%s' did not produce the right attribute in footnote", markdown);
+  cmark_node *saladNode = cmark_node_next(cmark_node_next(icecreamNode));
+  INT_EQ(runner, cmark_node_get_type(saladNode), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(saladNode), "has_tomato: true", "markdown '%s' did not produce the right attribute in footnote", markdown);
+
+  cmark_node_free(doc);
+}
+
+static void verify_custom_attributes_footnote_mixed_content(test_batch_runner *runner) {
+  static const char markdown[] =
+    "^[attribute1][1], [a link][2], ^[attribute2][3], ^[attribute3][1]\n"
+    "\n"
+    "^[1]: rainbow: 'fun'\n"
+    "[2]: https://www.example.com\n"
+    "Lorem ipsum\n"
+    "\n"
+    "^[3]: universe: 42\n";
+  cmark_node *doc;
+  cmark_node *attributeNode1 = parse_custom_attributues_footnote(runner, markdown, &doc);
+  INT_EQ(runner, cmark_node_get_type(attributeNode1), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(attributeNode1), "rainbow: 'fun'", "markdown '%s' did not produce the right attribute in footnote", markdown);
+  cmark_node *linkNode = cmark_node_next(cmark_node_next(attributeNode1));
+  INT_EQ(runner, cmark_node_get_type(linkNode), CMARK_NODE_LINK, "markdown '%s' did not produce an link node", markdown);
+  STR_EQ(runner, cmark_node_get_url(linkNode), "https://www.example.com", "markdown '%s' did not produce the right link in footnote", markdown);
+  cmark_node *attributeNode2 = cmark_node_next(cmark_node_next(linkNode));
+  INT_EQ(runner, cmark_node_get_type(attributeNode2), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(attributeNode2), "universe: 42", "markdown '%s' did not produce the right attribute in footnote", markdown);
+  cmark_node *attributeNode3 = cmark_node_next(cmark_node_next(attributeNode2));
+  INT_EQ(runner, cmark_node_get_type(attributeNode3), CMARK_NODE_ATTRIBUTE, "markdown '%s' did not produce an attribute node", markdown);
+  STR_EQ(runner, cmark_node_get_attributes(attributeNode3), "rainbow: 'fun'", "markdown '%s' did not produce the right attribute in footnote", markdown);
+
+  cmark_node_free(doc);
+}
+
+static void verify_custom_attributes_node_with_footnote(test_batch_runner *runner) {
+  verify_custom_attributes_footnote_basic(runner);
+  verify_custom_attributes_footnote_multiple_footnotes(runner);
+  verify_custom_attributes_footnote_reuse(runner);
+  verify_custom_attributes_footnote_mixed_content(runner);
+}
+
+typedef void (*reentrant_call_func) (void);
+
+static cmark_node *reentrant_parse_inline_ext(cmark_syntax_extension *self, cmark_parser *parser,
+                                              cmark_node *parent, unsigned char character,
+                                              cmark_inline_parser *inline_parser) {
+  void *priv = cmark_syntax_extension_get_private(self);
+  if (priv) {
+    reentrant_call_func func = (reentrant_call_func)priv;
+    func();
+    cmark_syntax_extension_set_private(self, NULL, NULL);
+  }
+
+  return NULL;
+}
+
+static void run_inner_parser() {
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
+  cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("strikethrough"));
+
+  static const char markdown[] = "this is the ~~outer~~ inner document";
+  cmark_parser_feed(parser, markdown, sizeof(markdown) - 1);
+
+  cmark_node *doc = cmark_parser_finish(parser);
+  cmark_node_free(doc);
+  cmark_parser_free(parser);
+}
+
+static void parser_interrupt(test_batch_runner *runner) {
+  cmark_gfm_core_extensions_ensure_registered();
+
+  cmark_syntax_extension *my_ext = cmark_syntax_extension_new("interrupt");
+  cmark_syntax_extension_set_private(my_ext, (void *)&run_inner_parser, NULL);
+  cmark_syntax_extension_set_match_inline_func(my_ext, reentrant_parse_inline_ext);
+
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
+  cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("strikethrough"));
+  cmark_parser_attach_syntax_extension(parser, my_ext);
+
+  static const char markdown[] = "this is the ~~inner~~ outer document";
+  cmark_parser_feed(parser, markdown, sizeof(markdown) - 1);
+
+  cmark_node *doc = cmark_parser_finish(parser);
+  char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+  STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+         "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
+         "<document xmlns=\"http://commonmark.org/xml/1.0\">\n"
+         "  <paragraph>\n"
+         "    <text xml:space=\"preserve\">this is the </text>\n"
+         "    <strikethrough>\n"
+         "      <text xml:space=\"preserve\">inner</text>\n"
+         "    </strikethrough>\n"
+         "    <text xml:space=\"preserve\"> outer document</text>\n"
+         "  </paragraph>\n"
+         "</document>\n", "interrupting the parser should still allow extensions");
+
+  free(xml);
+  cmark_node_free(doc);
+  cmark_parser_free(parser);
+  cmark_syntax_extension_free(cmark_get_default_mem_allocator(), my_ext);
+}
+
+static void compare_table_spans_html(test_batch_runner *runner, const char *markdown, bool use_ditto,
+                                     const char *expected_html, const char *msg) {
+  int options = CMARK_OPT_TABLE_SPANS;
+  if (use_ditto)
+    options |= CMARK_OPT_TABLE_ROWSPAN_DITTO;
+  cmark_parser *parser = cmark_parser_new(options);
+  cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("table"));
+
+  cmark_parser_feed(parser, markdown, strlen(markdown));
+
+  cmark_node *doc = cmark_parser_finish(parser);
+  char *html = cmark_render_html(doc, options, NULL);
+  STR_EQ(runner, html, expected_html, msg);
+
+  free(html);
+  cmark_node_free(doc);
+  cmark_parser_free(parser);
+}
+
+static void table_spans(test_batch_runner *runner) {
+  {
+    static const char markdown[] =
+      "| one | two |\n"
+      "| --- | --- |\n"
+      "| hello    ||\n";
+    static const char html[] =
+      "<table>\n"
+      "<thead>\n"
+      "<tr>\n"
+      "<th>one</th>\n"
+      "<th>two</th>\n"
+      "</tr>\n"
+      "</thead>\n"
+      "<tbody>\n"
+      "<tr>\n"
+      "<td colspan=\"2\">hello</td>\n"
+      "</tr>\n"
+      "</tbody>\n"
+      "</table>\n";
+    compare_table_spans_html(runner, markdown, false, html,
+                             "table colspans should work when enabled");
+  }
+  {
+    static const char markdown[] =
+      "| one | two   |\n"
+      "| --- | ----- |\n"
+      "| big | small |\n"
+      "| ^   | small |\n";
+    static const char html[] =
+      "<table>\n"
+      "<thead>\n"
+      "<tr>\n"
+      "<th>one</th>\n"
+      "<th>two</th>\n"
+      "</tr>\n"
+      "</thead>\n"
+      "<tbody>\n"
+      "<tr>\n"
+      "<td rowspan=\"2\">big</td>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "<tr>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "</tbody>\n"
+      "</table>\n";
+    compare_table_spans_html(runner, markdown, false, html,
+                             "table rowspans should work when enabled");
+  }
+  {
+    static const char markdown[] =
+      "| one | two   |\n"
+      "| --- | ----- |\n"
+      "| big | small |\n"
+      "| \"   | small |\n";
+    static const char html[] =
+      "<table>\n"
+      "<thead>\n"
+      "<tr>\n"
+      "<th>one</th>\n"
+      "<th>two</th>\n"
+      "</tr>\n"
+      "</thead>\n"
+      "<tbody>\n"
+      "<tr>\n"
+      "<td rowspan=\"2\">big</td>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "<tr>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "</tbody>\n"
+      "</table>\n";
+    compare_table_spans_html(runner, markdown, true, html,
+                             "rowspan ditto marks should work when enabled");
+  }
+  {
+    static const char markdown[] =
+      "| one | two | three |\n"
+      "| --- | --- | ----- |\n"
+      "| big      || small |\n"
+      "| ^        || small |\n";
+    static const char html[] =
+      "<table>\n"
+      "<thead>\n"
+      "<tr>\n"
+      "<th>one</th>\n"
+      "<th>two</th>\n"
+      "<th>three</th>\n"
+      "</tr>\n"
+      "</thead>\n"
+      "<tbody>\n"
+      "<tr>\n"
+      "<td colspan=\"2\" rowspan=\"2\">big</td>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "<tr>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "</tbody>\n"
+      "</table>\n";
+    compare_table_spans_html(runner, markdown, false, html,
+                             "colspan and rowspan should combine sensibly");
+  }
+  {
+    static const char markdown[] =
+      "| one | two | three |\n"
+      "| --- | --- | ----- |\n"
+      "| big      || small |\n"
+      "| \"        || small |\n";
+    static const char html[] =
+      "<table>\n"
+      "<thead>\n"
+      "<tr>\n"
+      "<th>one</th>\n"
+      "<th>two</th>\n"
+      "<th>three</th>\n"
+      "</tr>\n"
+      "</thead>\n"
+      "<tbody>\n"
+      "<tr>\n"
+      "<td colspan=\"2\" rowspan=\"2\">big</td>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "<tr>\n"
+      "<td>small</td>\n"
+      "</tr>\n"
+      "</tbody>\n"
+      "</table>\n";
+    compare_table_spans_html(runner, markdown, true, html,
+                             "colspan and rowspan should combine when ditto marks are enabled");
+  }
 }
 
 int main() {
@@ -1160,6 +1610,12 @@ int main() {
   source_pos(runner);
   source_pos_inlines(runner);
   ref_source_pos(runner);
+  inline_only_opt(runner);
+  preserve_whitespace_opt(runner);
+  verify_custom_attributes_node(runner);
+  verify_custom_attributes_node_with_footnote(runner);
+  parser_interrupt(runner);
+  table_spans(runner);
 
   test_print_summary(runner);
   retval = test_ok(runner) ? 0 : 1;

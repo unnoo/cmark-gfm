@@ -1,9 +1,11 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "cmark_ctype.h"
-#include "config.h"
+#include "cmark-gfm_config.h"
 #include "cmark-gfm.h"
 #include "houdini.h"
 #include "scanners.h"
@@ -417,6 +419,19 @@ static int S_render_node(cmark_html_renderer *renderer, cmark_node *node,
 
       cmark_strbuf_puts(html, "\" />");
     }
+    break;
+
+  case CMARK_NODE_ATTRIBUTE:
+    // TODO: Output span, attributes potentially controlling class/id here. For now just output the main string.
+    /*
+    if (entering) {
+      cmark_strbuf_puts(html, "<span __attributes=\"");
+      cmark_strbuf_put(html, node->as.attribute.attributes.data, node->as.attribute.attributes.len);
+      cmark_strbuf_puts(html, "\">");
+    } else {
+      cmark_strbuf_puts(html, "</span>");
+    }
+    */
     break;
 
   case CMARK_NODE_FOOTNOTE_DEFINITION:

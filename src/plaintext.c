@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 #include "node.h"
 #include "syntax_extension.h"
 #include "render.h"
@@ -10,9 +12,8 @@
 
 // Functions to convert cmark_nodes to plain text strings.
 
-static CMARK_INLINE void outc(cmark_renderer *renderer, cmark_node *node, 
-                              cmark_escaping escape,
-                              int32_t c, unsigned char nextc) {
+static inline void outc(cmark_renderer *renderer, cmark_node *node,
+                        cmark_escaping escape, int32_t c, unsigned char nextc) {
   cmark_render_code_point(renderer, c);
 }
 
@@ -172,6 +173,10 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     break;
 
   case CMARK_NODE_IMAGE:
+    break;
+
+  case CMARK_NODE_ATTRIBUTE:
+    OUT(cmark_chunk_to_cstr(renderer->mem, &node->as.literal), false, LITERAL);
     break;
 
   case CMARK_NODE_FOOTNOTE_REFERENCE:

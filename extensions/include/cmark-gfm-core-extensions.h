@@ -2,7 +2,8 @@
 #define CMARK_GFM_CORE_EXTENSIONS_H
 
 #include "cmark-gfm-extension_api.h"
-#include "cmark-gfm_export.h"
+#include "export.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -12,15 +13,6 @@ extern "C" {
 
 CMARK_GFM_EXPORT
 void cmark_gfm_core_extensions_ensure_registered(void);
-
-extern cmark_node_type CMARK_NODE_TABLE, CMARK_NODE_TABLE_ROW,
-    CMARK_NODE_TABLE_CELL;
-
-#ifndef CMARK_NO_SHORT_NAMES
-#define NODE_TABLE CMARK_NODE_TABLE
-#define NODE_TABLE_ROW CMARK_NODE_TABLE_ROW
-#define NODE_TABLE_CELL CMARK_NODE_TABLE_CELL
-#endif
 
 CMARK_GFM_EXPORT
 uint16_t cmark_gfm_extensions_get_table_columns(cmark_node *node);
@@ -40,6 +32,38 @@ int cmark_gfm_extensions_set_table_alignments(cmark_node *node, uint16_t ncols, 
 
 CMARK_GFM_EXPORT
 int cmark_gfm_extensions_get_table_row_is_header(cmark_node *node);
+
+/** Sets the column span for the table cell, returning 1 on success and 0 on error.
+ */
+CMARK_GFM_EXPORT
+int cmark_gfm_extensions_set_table_cell_colspan(cmark_node *node, unsigned colspan);
+
+/** Sets the row span for the table cell, returning 1 on success and 0 on error.
+ */
+CMARK_GFM_EXPORT
+int cmark_gfm_extensions_set_table_cell_rowspan(cmark_node *node, unsigned rowspan);
+
+/**
+ Gets the column span for the table cell, returning \c UINT_MAX on error.
+
+ A value of 0 indicates that the cell is a "filler" cell, intended to be overlapped with a previous
+ cell with a span > 1.
+
+ Column span is only parsed when \c CMARK_OPT_TABLE_SPANS is set.
+ */
+CMARK_GFM_EXPORT
+unsigned cmark_gfm_extensions_get_table_cell_colspan(cmark_node *node);
+
+/**
+ Gets the row span for the table cell, returning \c UINT_MAX on error.
+
+ A value of 0 indicates that the cell is a "filler" cell, intended to be overlapped with a previous
+ cell with a span > 1.
+
+ Row span is only parsed when \c CMARK_OPT_TABLE_SPANS is set.
+ */
+CMARK_GFM_EXPORT
+unsigned cmark_gfm_extensions_get_table_cell_rowspan(cmark_node *node);
 
 /** Sets whether the node is a table header row, returning 1 on success and 0 on error.
  */

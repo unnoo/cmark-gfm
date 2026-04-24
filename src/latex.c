@@ -1,9 +1,10 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "config.h"
+#include "cmark-gfm_config.h"
 #include "cmark-gfm.h"
 #include "node.h"
 #include "buffer.h"
@@ -18,9 +19,8 @@
 #define BLANKLINE() renderer->blankline(renderer)
 #define LIST_NUMBER_STRING_SIZE 20
 
-static CMARK_INLINE void outc(cmark_renderer *renderer, cmark_node *node,
-                              cmark_escaping escape,
-                              int32_t c, unsigned char nextc) {
+static inline void outc(cmark_renderer *renderer, cmark_node *node,
+                        cmark_escaping escape, int32_t c, unsigned char nextc) {
   if (escape == LITERAL) {
     cmark_render_code_point(renderer, c);
     return;
@@ -448,6 +448,7 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
 
   case CMARK_NODE_FOOTNOTE_DEFINITION:
   case CMARK_NODE_FOOTNOTE_REFERENCE:
+  case CMARK_NODE_ATTRIBUTE:
     // TODO
     break;
 

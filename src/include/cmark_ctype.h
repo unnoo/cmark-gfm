@@ -1,7 +1,7 @@
 #ifndef CMARK_CMARK_CTYPE_H
 #define CMARK_CMARK_CTYPE_H
 
-#include "cmark-gfm_export.h"
+#include "export.h"
 
 #ifdef __cplusplus
 extern "C" {

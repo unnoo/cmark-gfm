@@ -1,9 +1,10 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "config.h"
+#include "cmark-gfm_config.h"
 #include "cmark-gfm.h"
 #include "node.h"
 #include "buffer.h"
@@ -250,6 +251,10 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     } else {
       LIT("]");
     }
+    break;
+
+  case CMARK_NODE_ATTRIBUTE:
+    OUT(cmark_node_get_literal(node), allow_wrap, NORMAL);
     break;
 
   case CMARK_NODE_FOOTNOTE_DEFINITION:

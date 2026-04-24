@@ -1,8 +1,10 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <errno.h>
-#include "config.h"
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "cmark-gfm_config.h"
 #include "cmark-gfm.h"
 #include "node.h"
 #include "cmark-gfm-extension_api.h"
@@ -10,7 +12,7 @@
 #include "parser.h"
 #include "registry.h"
 
-#include "../extensions/cmark-gfm-core-extensions.h"
+#include <cmark-gfm-core-extensions.h>
 
 #if defined(__OpenBSD__)
 #  include <sys/param.h>
@@ -62,6 +64,10 @@ void print_usage() {
   printf("                                  with two tildes\n");
   printf("  --table-prefer-style-attributes Use style attributes to align table cells\n"
          "                                  instead of align attributes.\n");
+  printf("  --table-spans                   Enable parsing row- and column-span\n"
+         "                                  in tables\n");
+  printf("  --table-rowspan-ditto           Use a double-quote 'ditto mark' to indicate\n"
+         "                                  row span in tables instead of a caret.\n");
   printf("  --full-info-string              Include remainder of code block info\n"
          "                                  string in a separate attribute.\n");
   printf("  --help, -h       Print usage information\n");
@@ -167,6 +173,10 @@ int main(int argc, char *argv[]) {
       options |= CMARK_OPT_FULL_INFO_STRING;
     } else if (strcmp(argv[i], "--table-prefer-style-attributes") == 0) {
       options |= CMARK_OPT_TABLE_PREFER_STYLE_ATTRIBUTES;
+    } else if (strcmp(argv[i], "--table-spans") == 0) {
+      options |= CMARK_OPT_TABLE_SPANS;
+    } else if (strcmp(argv[i], "--table-rowspan-ditto") == 0) {
+      options |= CMARK_OPT_TABLE_ROWSPAN_DITTO;
     } else if (strcmp(argv[i], "--strikethrough-double-tilde") == 0) {
       options |= CMARK_OPT_STRIKETHROUGH_DOUBLE_TILDE;
     } else if (strcmp(argv[i], "--sourcepos") == 0) {
